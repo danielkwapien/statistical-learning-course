@@ -1,0 +1,362 @@
+---
+title: "Analysis of Wine Quality"
+subtittle: "Data exploration using unsupervised learning techniques: Principal Component Analysis, Factor Analysis and Clustering"
+author: "Daniel Kwapien"
+date: "02-11-2022"
+always_allow_html: true
+output:
+  html_document:
+    theme: united 
+    toc: true
+  pdf_document: 
+    fig_width: 6
+    fig_height: 4
+---
+
+```{r setup, include=F, echo = F}
+knitr::opts_chunk$set(echo = T, message = F, error = F, fig.align = 'center')
+```
+
+```{r, echo=F}
+htmltools::img(src = knitr::image_uri(file.path("uc3m.jpg")), 
+               alt = 'logo', 
+               style = 'position:absolute; top:0; right:0; padding:10px;',
+               width="600",
+               height="80")
+```
+
+## Introduction 
+
+Wine is one of the most consumed and popular alcoholic beverages, typically made from fermented grapes. Briefly, in its production process it coverts the sugar from the grapes to ethanol and carbon dioxide. Different varieties of grapes are major factors in different styles of wine. These differences between grapes result from the complex interactions between the biochemical development of the grape, the reactions involved in fermentation, the grape's growing environment, and the wine production process. That's why it is essential to control the production process in order to optimize it, and that's where the **data scientist importance** comes in.
+
+In this project, we will be working with a data set related with the Portuguese wine *"Vinho Verde"*.
+
+## Set-up 
+
+We will be working with the following R libraries: 
+
+```{r}
+library(tidyverse)
+library(GGally)
+library(factoextra)
+library(mice)
+library(EnvStats)
+library(plotly)
+library(cluster)
+library(MetBrewer)
+colors = met.brewer('Benedictus')
+```
+
+The data set source comes from [UCI Machine Learning Repository](https://archive.ics.uci.edu/ml/datasets/wine+Quality) and it was provided by the University of Minho, Guimarães and the Viticulture Commission of the Vinho Verde Region(CVRVV) @2009.
+
+We can use either the red wine data set or with the white wine data set. I have chosen the red wine one.
+
+```{r}
+df_red = read.csv('winequality-red.csv', sep = ';')
+glimpse(df_red)
+```
+**Variable description**
+
+Input variables (based on physicochemical tests):
+
+1. Fixed acidity
+
+2. Volatile acidity
+
+3. Citric acid
+
+4. Residual sugar
+
+5. Chlorides
+
+6. Free sulfur dioxide
+
+7. Total sulfur dioxide
+
+8. Density
+
+9. Levels of pH
+
+10. Sulphates
+
+11. Alcohol
+
+Output variable (based on sensory data):
+
+12. Quality (score between 0 and 10)
+
+**Insert missing values**
+
+```{r}
+sum(is.na(df_red))
+```
+
+Since our data is so clean, we will impute random NA's in order to make it more realistic. In this case, we will impute a 10% of NA's:
+
+```{r}
+n_red = nrow(df_red)
+for (i in (1:floor(n_red/10))) {
+  df_red[sample(c(1:n_red), 1), sample(c(2:ncol(df_red)), 1)] <- NA
+  }
+sum(is.na(df_red))
+```
+
+## Data Preprocessing
+
+### Missing values
+
+We know that 10% of our data are NA's. In this case we will impute them using mice, except for quality, which we can't impute since it is the output variable, so we will just remove the rows whose quality is null.
+
+
+```{r}
+sum(is.na(df_red$quality))
+df_red = df_red[complete.cases(df_red$quality), ]
+```
+
+And for the rest of columns we will just impute them using a linear regression model, since they are 
+
+```{r}
+set.seed(42)
+mice.obj = mice(df_red, method = 'norm')
+```
+
+```{r}
+df_red = mice::complete(mice.obj)
+```
+
+### Outliers
+
+We will remove outliers by applying univariate analysis
+
+```{r, fig.width=15, fig.height=15}
+par(mfrow= c(3,4))
+for(i in seq(from =1, to = 12)){
+  boxplot(df_red[,i], las=2, xlab = colnames(df_red)[i], col = colors[1])
+}
+```
+
+
+```{r}
+topLimits = c(15,1.5,0.9,10,0.3,60,200,2,4,1.5,14.5)
+for(i in seq(from = 1, to = 11)){
+    df_red = df_red[df_red[,i] < topLimits[i],]
+}
+
+```
+
+```{r fig.width=15, fig.height=15}
+par(mfrow= c(3,4))
+for(i in seq(from =1, to = 12)){
+  boxplot(df_red[,i], las=2, xlab = colnames(df_red)[i], col = colors[1])
+}
+```
+
+Since, we will be deleting a lot of information using IQR. We will detect outliers using PCA, now we will just remove the most outstanding ones
+
+That's better
+
+### Feature extraction
+
+We will extract quality and store it in another variable
+
+```{r}
+quality = df_red$quality
+red = df_red[,-c(12)]
+```
+
+
+## Descriptive analysis 
+
+```{r}
+summary(red)
+```
+
+```{r}
+ggcorr(df_red, label = T, label_size = 3, low = colors[1], high = colors[13], midpoint = 0)
+```
+
+**Observations:**
+
+* Alcohol has the highest correlation with quality, followed by volatile acidity.
+
+* Although Total Sulfur dioxide and free sulfur dioxide seem redundant, they do not correlate that much.
+
+  
+### PCA (Principal Component Analysis)
+
+```{r}
+pca = prcomp(red, scale. = T)
+summary(pca)
+```
+
+```{r}
+pca$rotation[,1:3]
+```
+
+```{r}
+data.frame(z1=-pca$x[,1], z2=pca$x[,2]) %>% 
+  plot_ly(x=~z1, y=~z2, color = ~quality,  colors = c(colors[13:1]))
+```
+
+```{r}
+data.frame(z1=-pca$x[,1], z2=pca$x[,2], z3=pca$x[,3]) %>%
+  plot_ly(x=~z1, y=~z2, z=~z3, color = ~quality, colors = c(colors[13:1]), size = 4) %>%
+  layout(scene = list(xaxis = list(title = 'Dim 1'),
+                     yaxis = list(title = 'Dim 2'),
+                     zaxis = list(title = 'Dim 3')))
+```
+
+```{r}
+fviz_screeplot(pca, addlabels = TRUE, barcolor = colors[13],  barfill = colors[12])
+```
+
+```{r}
+par(mfrow= c(3,1))
+
+i=1
+fviz_contrib(pca, choice = 'var', axes=i, color = colors[13],  fill = colors[12] )
+
+i=2
+fviz_contrib(pca, choice = 'var', axes=i, color = colors[13],  fill = colors[12])
+
+i=3
+fviz_contrib(pca, choice = 'var', axes=i, color = colors[13],  fill = colors[12])
+```
+
+### Factor Analysis
+
+```{r}
+x.f = factanal(red, factors = 3, rotation='varimax', scores = 'regression')
+x.f
+```
+
+```{r}
+factor.df = data.frame(quality=quality, x.f$scores) %>% gather('factor', 'score', -quality)
+
+factor.df %>%
+  ggplot(aes(x=quality, y=score)) + geom_jitter() +
+  theme_bw() + theme(legend.position="bottom") +
+  facet_wrap(~factor, ncol=1) +
+  labs(title="3-factor model", x="", y="scores", col="")
+```
+
+From factor analysis we can conclude:
+
+  1. **The first factor** is related with acidity of the wine, which as a consequence makes salivate more or less
+  
+  2. **The second factor** is related with density and percentage of alcohol, so called the body of a wine, which is the sensation of how *heavy* feel the wine in the mouth 
+  
+  3. **The third factor ** is related with the quantity of sulfur dioxide, which is used as a antioxidant in the winemaking process and when it is not managed well and it is over added it can create a sensation in the mouth of *burnt rubber*
+  
+### Conclusion: PCA or Factor Analysis?
+
+In this case, I will stick PCA for dimensionality reduction, since:
+
+  1. It explains 60,28% of variance, compared with only 49,6% explained by Factor Analysis.
+  2. In this case, we don't need factors, since our goal isn't to discover hidden relantiships between variables.
+
+## Clustering
+
+```{r}
+fviz_nbclust(scale(red), kmeans, method = 'wss', linecolor = colors[12])
+```
+
+Well, it is not what we are looking for, but it makes sense since our goal is not to classify wine into other subgroups from an already specific group of red wine. 
+
+```{r}
+fviz_nbclust(scale(red), kmeans, method = 'silhouette', linecolor = colors[12])
+```
+
+Using the silhoutte method we obtain that the optimal number of clusters are two, so we will divide de data set into two clusters.
+
+```{r}
+set.seed(42)
+
+fit = kmeans(scale(red), centers=2, nstart=100)
+groups = fit$cluster
+```
+
+```{r}
+barplot(table(groups), col = colors[12])
+```
+
+
+```{r}
+fviz_cluster(fit, data = red, geom = c("point"),ellipse.type = 'norm', pointsize=1)+
+  theme_minimal() + scale_colour_manual(values = c(colors[1],colors[13])) + scale_fill_manual(values = c(colors[1], colors[13])) 
+```
+
+
+```{r}
+z1=-pca$x[,1] 
+z2=pca$x[,2] 
+z3=pca$x[,3]
+fig1 = plot_ly(x=~(-z1), y=~z2, marker = list(size = 4), color = ~red$density, colors = c(colors[13:1])) 
+fig2 = plot_ly(x=~(-z1), y=~z2, marker = list(size = 4), color = ~red$pH, colors = c(colors[13:1])) 
+fig3 = plot_ly(x=~(-z1), y=~z2, marker = list(size = 4), color = ~red$fixed.acidity, colors = c(colors[13:1])) 
+fig4 = plot_ly(x=~(-z1), y=~z2, marker = list(size = 4), color = ~red$alcohol, colors = c(colors[13:1])) 
+  
+annotations = list( 
+  list( 
+    x = 0.2,  
+    y = 1.0,  
+    text = "Density",  
+    xref = "paper",  
+    yref = "paper",  
+    xanchor = "center",  
+    yanchor = "bottom",  
+    showarrow = FALSE 
+  ),  
+  list( 
+    x = 0.8,  
+    y = 1,  
+    text = "pH",  
+    xref = "paper",  
+    yref = "paper",  
+    xanchor = "center",  
+    yanchor = "bottom",  
+    showarrow = FALSE 
+  ),  
+  list( 
+    x = 0.2,  
+    y = 0.45,  
+    text = "Fixed acidity",  
+    xref = "paper",  
+    yref = "paper",  
+    xanchor = "center",  
+    yanchor = "bottom",  
+    showarrow = FALSE 
+  ),
+  list( 
+    x = 0.8,  
+    y = 0.45,  
+    text = "Alcohol",  
+    xref = "paper",  
+    yref = "paper",  
+    xanchor = "center",  
+    yanchor = "bottom",  
+    showarrow = FALSE 
+  ))
+
+subplot(fig1, fig2, fig3, fig4, nrows = 2, shareX = T, shareY = T) %>% 
+    layout(title = 'Feature comparison', annotations = annotations, showlegend = F)
+
+```
+
+So, we do not get a division into good and bad wines, which would be the ideal case, instead we got a division into, seems like, **group 1** which contains wines with low pH, high fixed acidity and high amount of alcohol and **group 2** which contains wine with high pH, low fixed acidity and low amount of alcohol. 
+
+It is interesting since, as we have seen, fixed acidity and amount of citric acid are, not highly but almost, correlated with density and pH.
+
+So what conclusions can we extract?
+
+We obtained a *sensory division*, meaning the wines in group 1 and group 2 give a different sensory experience.
+
+  * **Group 1** contains wines with high acidity, which translates into high salivation, and high density, which should mean a lower percentage of alcohol, which translates into low wine body.
+  * **Group 2**, as opposition, contains wines with low acidity and low density, which translates into less salivation and a high body.
+  
+
+*Note: this description is very relative and hard to taste by an inexperienced wine taster, almost all of us could not taste any difference.*
+
+## End
+
+Thanks for reading.
