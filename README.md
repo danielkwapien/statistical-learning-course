@@ -1,6 +1,6 @@
 # Statistical Learning Coursework
 
-The objective of this subject was to:
+The objective of this course was to:
 * Gain familiarity with various data-driven analytical tools for informed decision-making.
 * Develop expertise in unsupervised learning for clustering or dimensionality reduction in large datasets.
 * Acquire skills in key statistical and supervised learning tools for classification and regression tasks.
